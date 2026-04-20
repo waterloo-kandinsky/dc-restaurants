@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>DC Restaurant Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+
+/* Desktop layout */
+#map { position: fixed; top: 0; left: 0; right: 360px; bottom: 0; z-index: 1; }
+
+#sidebar {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 360px;
+  background: #fff; border-left: 1px solid #ddd;
+  display: flex; flex-direction: column; z-index: 2;
+  box-shadow: -2px 0 8px rgba(0,0,0,0.08);
+}
+
+#sidebar-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid #eee;
+}
+
+#sidebar-header h1 {
+  font-size: 18px; font-weight: 700; margin-bottom: 8px; color: #1a1a1a;
+}
+
+.filter-row {
+  display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;
+}
+
+.filter-row select, .filter-row input {
+  font-size: 12px; padding: 5px 8px; border: 1px solid #ccc;
+  border-radius: 6px; background: #f8f8f8; flex: 1; min-width: 0;
+}
+
+.filter-row input { flex: 2; }
+
+.filter-chips {
+  display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;
+}
+
+.chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 12px;
+  border: 1px solid #ccc; background: #fff; cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+}
+.chip:hover { border-color: #888; }
+.chip.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+#count {
+  font-size: 11px; color: #888; margin-top: 6px;
+}
+
+#restaurant-list {
+  flex: 1; overflow-y: auto; padding: 0;
+}
+
+.restaurant-card {
+  padding: 12px 16px; border-bottom: 1px solid #f0f0f0;
+  cursor: pointer; transition: background 0.1s;
+}
+.restaurant-card:hover { background: #f7f7f7; }
+.restaurant-card.active { background: #eff6ff; border-left: 3px solid #2563eb; }
+
+.card-header {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+}
+.card-name {
+  font-size: 14px; font-weight: 600; color: #1a1a1a; line-height: 1.3;
+}
+.card-right {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+}
+.card-price {
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.card-sources {
+  font-size: 10px; font-weight: 700; color: #fff; background: #6366f1;
+  border-radius: 50%; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.card-cuisine {
+  font-size: 12px; color: #666; margin-top: 2px;
+}
+.card-neighborhood {
+  font-size: 11px; color: #999; margin-top: 1px;
+}
+
+.card-badges {
+  display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;
+}
+.badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  font-weight: 600; letter-spacing: 0.3px;
+}
+.badge-michelin-2 { background: #fef3c7; color: #92400e; }
+.badge-michelin-1 { background: #fef3c7; color: #92400e; }
+.badge-michelin-bib { background: #fce7f3; color: #9d174d; }
+.badge-wash { background: #dbeafe; color: #1e40af; }
+.badge-wapo { background: #e0e7ff; color: #3730a3; }
+.badge-eater { background: #d1fae5; color: #065f46; }
+.badge-jb-winner { background: #fde68a; color: #78350f; }
+.badge-jb-nominee { background: #fed7aa; color: #9a3412; }
+.badge-jb-semi { background: #ffedd5; color: #9a3412; }
+.badge-nyt { background: #f0f0f0; color: #333; }
+.badge-national { background: #e9d5ff; color: #6b21a8; }
+.card-address {
+  font-size: 11px; color: #999; margin-top: 4px;
+}
+
+/* Popup */
+.leaflet-popup-content-wrapper {
+  border-radius: 10px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15) !important;
+}
+.leaflet-popup-content { margin: 12px 14px !important; min-width: 200px; }
+.popup-name { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.popup-cuisine { font-size: 12px; color: #666; margin-bottom: 6px; }
+.popup-detail { font-size: 12px; color: #444; margin-bottom: 2px; }
+.popup-badges { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+.popup-sources { font-size: 11px; color: #6366f1; font-weight: 600; margin-top: 4px; }
+
+/* Legend */
+#legend {
+  position: fixed; bottom: 20px; left: 20px; z-index: 1000;
+  background: #fff; padding: 12px 16px; border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12); font-size: 12px;
+}
+#legend h4 { font-size: 12px; margin-bottom: 6px; color: #333; }
+.legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.legend-dot {
+  width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+}
+
+/* Mobile: bottom sheet */
+@media (max-width: 768px) {
+  #map { right: 0; bottom: 0; }
+
+  #sidebar {
+    position: fixed; top: auto; left: 0; right: 0; bottom: 0;
+    width: 100%; height: 45vh;
+    border-left: none; border-top: 1px solid #ddd;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.12);
+    transition: height 0.3s ease;
+  }
+  #sidebar.collapsed { height: 60px; }
+  #sidebar.expanded { height: 85vh; }
+
+  .sheet-handle {
+    display: block !important;
+    width: 36px; height: 4px; background: #ccc; border-radius: 2px;
+    margin: 8px auto 4px; cursor: grab;
+  }
+
+  #sidebar-header { padding: 6px 16px 8px; }
+  #sidebar-header h1 { font-size: 16px; margin-bottom: 6px; }
+
+  #legend { bottom: calc(45vh + 10px); left: 10px; padding: 8px 12px; font-size: 11px; }
+  #sidebar.collapsed ~ #legend { bottom: 70px; }
+  #sidebar.expanded ~ #legend { bottom: calc(85vh + 10px); }
+}
+
+.sheet-handle { display: none; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="sidebar">
+  <div class="sheet-handle" id="sheet-handle"></div>
+  <div id="sidebar-header">
+    <h1>DC Restaurant Map</h1>
+    <div class="filter-row">
+      <input type="text" id="search" placeholder="Search restaurants...">
+    </div>
+    <div class="filter-row">
+      <select id="filter-cuisine"><option value="">All cuisines</option></select>
+      <select id="filter-neighborhood"><option value="">All neighborhoods</option></select>
+    </div>
+    <div class="filter-chips" id="price-filters">
+      <span class="chip" data-price="$">$</span>
+      <span class="chip" data-price="$$">$$</span>
+      <span class="chip" data-price="$$$">$$$</span>
+      <span class="chip" data-price="$$$$">$$$$</span>
+    </div>
+    <div class="filter-row">
+      <select id="filter-location">
+        <option value="">DC + Suburbs</option>
+        <option value="dc">DC only</option>
+        <option value="outside">Outside DC</option>
+      </select>
+      <select id="filter-sort">
+        <option value="acclaimed">Most Acclaimed</option>
+        <option value="price-asc">Price: Low to High</option>
+        <option value="price-desc">Price: High to Low</option>
+        <option value="az">A &ndash; Z</option>
+      </select>
+    </div>
+    <div class="filter-chips" id="source-filters">
+      <span class="chip" data-source="michelin">Michelin</span>
+      <span class="chip" data-source="washingtonian">Wash 100</span>
+      <span class="chip" data-source="wapo">WaPo 40</span>
+      <span class="chip" data-source="eater">Eater 38</span>
+      <span class="chip" data-source="nyt">NYT 25</span>
+      <span class="chip" data-source="jamesbard">James Beard</span>
+      <span class="chip" data-source="national">Nat'l Best-Of</span>
+    </div>
+    <div id="count"></div>
+  </div>
+  <div id="restaurant-list"></div>
+</div>
+
+<div id="legend">
+  <h4>Price</h4>
+  <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div> $</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div> $$</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div> $$$</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div> $$$$</div>
+</div>
+
+<script>
+const PRICE_COLORS = { '$': '#22c55e', '$$': '#3b82f6', '$$$': '#f97316', '$$$$': '#ef4444' };
+const PRICE_ORDER = { '$': 1, '$$': 2, '$$$': 3, '$$$$': 4 };
+
+const map = L.map('map', { zoomControl: false, minZoom: 9 }).setView([38.91, -77.03], 12);
+L.control.zoom({ position: 'topright' }).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  maxZoom: 19
+}).addTo(map);
+
+let restaurants = [];
+let markers = {};
+let activeFilters = { search: '', prices: new Set(), cuisine: '', neighborhood: '', location: '', sort: 'acclaimed', sources: new Set() };
+
+function priceNum(price) {
+  if (price.includes('$$$$')) return 4;
+  if (price.includes('$$$')) return 3;
+  if (price.includes('$$')) return 2;
+  return 1;
+}
+
+function getColor(price) {
+  if (price.includes('$$$$')) return PRICE_COLORS['$$$$'];
+  if (price.includes('$$$')) return PRICE_COLORS['$$$'];
+  if (price.includes('$$')) return PRICE_COLORS['$$'];
+  return PRICE_COLORS['$'];
+}
+
+function getRadius(r) {
+  const s = parseInt(r.Sources) || 1;
+  return 4 + s * 2.5;
+}
+
+function makeBadges(r) {
+  let html = '';
+  if (r['Michelin']) {
+    const m = r['Michelin'];
+    if (m.includes('2 Star')) html += `<span class="badge badge-michelin-2">${m}</span>`;
+    else if (m.includes('1 Star')) html += `<span class="badge badge-michelin-1">${m}</span>`;
+    else if (m.includes('Bib')) html += `<span class="badge badge-michelin-bib">Bib Gourmand</span>`;
+  }
+  if (r['Washingtonian Rank']) html += `<span class="badge badge-wash">Wash #${r['Washingtonian Rank']}</span>`;
+  if (r['WaPo Sietsema']) {
+    const val = r['WaPo Sietsema'];
+    html += `<span class="badge badge-wapo">WaPo${val !== 'Yes' && val !== '' ? ' #' + val : ''}</span>`;
+  }
+  if (r['Eater 38']) html += `<span class="badge badge-eater">Eater 38</span>`;
+  if (r['NYT 25']) html += `<span class="badge badge-nyt">NYT 25</span>`;
+  if (r['James Beard']) {
+    const jb = r['James Beard'];
+    if (jb === 'Winner') html += `<span class="badge badge-jb-winner">JB Winner</span>`;
+    else if (jb === 'Nominee') html += `<span class="badge badge-jb-nominee">JB Nominee</span>`;
+    else html += `<span class="badge badge-jb-semi">JB Semifinalist</span>`;
+  }
+  if (r['National Lists']) {
+    r['National Lists'].split(', ').forEach(l => {
+      html += `<span class="badge badge-national">${l}</span>`;
+    });
+  }
+  return html;
+}
+
+function makePopup(r) {
+  let html = `<div class="popup-name">${r.Restaurant}</div>`;
+  html += `<div class="popup-cuisine">${r.Cuisine} &middot; ${r.Price}</div>`;
+  html += `<div class="popup-detail">${r.Address}</div>`;
+  if (r.Phone) html += `<div class="popup-detail">${r.Phone}</div>`;
+  if (r.Hours) html += `<div class="popup-detail">${r.Hours}</div>`;
+  html += `<div class="popup-sources">On ${r.Sources} list${r.Sources !== '1' ? 's' : ''}</div>`;
+  html += `<div class="popup-badges">${makeBadges(r)}</div>`;
+  return html;
+}
+
+function matchesFilters(r) {
+  const f = activeFilters;
+  if (f.search) {
+    const q = f.search.toLowerCase();
+    const searchable = [r.Restaurant, r.Cuisine, r.Neighborhood, r.Address].join(' ').toLowerCase();
+    if (!searchable.includes(q)) return false;
+  }
+  if (f.prices.size > 0 && !f.prices.has(r.Price.trim())) return false;
+  if (f.cuisine && !r.Cuisine.toLowerCase().includes(f.cuisine.toLowerCase())) return false;
+  if (f.neighborhood && r._region !== f.neighborhood) return false;
+  if (f.location === 'dc' && !r._isDC) return false;
+  if (f.location === 'outside' && r._isDC) return false;
+  if (f.sources.size > 0) {
+    let match = false;
+    if (f.sources.has('michelin') && r.Michelin) match = true;
+    if (f.sources.has('washingtonian') && r['Washingtonian Rank']) match = true;
+    if (f.sources.has('wapo') && r['WaPo Sietsema']) match = true;
+    if (f.sources.has('eater') && r['Eater 38']) match = true;
+    if (f.sources.has('nyt') && r['NYT 25']) match = true;
+    if (f.sources.has('jamesbard') && r['James Beard']) match = true;
+    if (f.sources.has('national') && r['National Lists']) match = true;
+    if (!match) return false;
+  }
+  return true;
+}
+
+function sortRestaurants(list) {
+  const mode = activeFilters.sort;
+  return list.sort((a, b) => {
+    if (mode === 'acclaimed') {
+      const sa = parseInt(a.Sources) || 0, sb = parseInt(b.Sources) || 0;
+      if (sb !== sa) return sb - sa;
+      return a.Restaurant.localeCompare(b.Restaurant);
+    }
+    if (mode === 'price-asc') {
+      const d = priceNum(a.Price) - priceNum(b.Price);
+      return d !== 0 ? d : a.Restaurant.localeCompare(b.Restaurant);
+    }
+    if (mode === 'price-desc') {
+      const d = priceNum(b.Price) - priceNum(a.Price);
+      return d !== 0 ? d : a.Restaurant.localeCompare(b.Restaurant);
+    }
+    return a.Restaurant.localeCompare(b.Restaurant);
+  });
+}
+
+function renderList(filtered) {
+  const listEl = document.getElementById('restaurant-list');
+  const countEl = document.getElementById('count');
+  countEl.textContent = `${filtered.length} of ${restaurants.length} restaurants`;
+
+  listEl.innerHTML = filtered.map(r => `
+    <div class="restaurant-card" data-idx="${restaurants.indexOf(r)}">
+      <div class="card-header">
+        <div class="card-name">${r.Restaurant}</div>
+        <div class="card-right">
+          <div class="card-price" style="color:${getColor(r.Price)}">${r.Price}</div>
+          <div class="card-sources">${r.Sources}</div>
+        </div>
+      </div>
+      <div class="card-cuisine">${r.Cuisine}</div>
+      <div class="card-neighborhood">${r.Neighborhood}</div>
+      <div class="card-badges">${makeBadges(r)}</div>
+      <div class="card-address">${r.Address}</div>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.restaurant-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const idx = parseInt(card.dataset.idx);
+      const r = restaurants[idx];
+      if (!r.Lat || !r.Lng) return;
+      map.flyTo([r.Lat, r.Lng], 16, { duration: 0.5 });
+      const marker = markers[r.Restaurant];
+      if (marker) marker.openPopup();
+      document.querySelectorAll('.restaurant-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      // On mobile, collapse the sheet to show the map
+      const sidebar = document.getElementById('sidebar');
+      if (window.innerWidth <= 768) {
+        sidebar.classList.add('collapsed');
+        sidebar.classList.remove('expanded');
+      }
+    });
+  });
+}
+
+function updateMap(filtered) {
+  const filteredNames = new Set(filtered.map(r => r.Restaurant));
+  Object.entries(markers).forEach(([name, marker]) => {
+    if (filteredNames.has(name)) {
+      marker.setStyle({ opacity: 1, fillOpacity: 0.7 });
+    } else {
+      marker.setStyle({ opacity: 0.1, fillOpacity: 0.05 });
+    }
+  });
+}
+
+function applyFilters() {
+  const filtered = sortRestaurants(restaurants.filter(matchesFilters));
+  renderList(filtered);
+  updateMap(filtered);
+}
+
+// Group neighborhoods into regions for the filter
+function getRegion(neighborhood) {
+  if (!neighborhood) return 'Other';
+  const n = neighborhood.trim();
+  // DC neighborhoods
+  const dcNeighborhoods = [
+    '14th Street', 'U Street', 'Adams Morgan', 'Bloomingdale', 'Capitol Hill',
+    'Cathedral Heights', 'Chevy Chase', 'Chinatown', 'Cleveland Park',
+    'Columbia Heights', 'Downtown', 'Dupont', 'Georgetown', 'Glover Park',
+    'H Street', 'Ivy City', 'Judiciary Square', 'Logan Circle', 'Mount Pleasant',
+    'Mount Vernon', 'Navy Yard', 'NoMa', 'Northwest DC', 'Penn Quarter',
+    'Petworth', 'Shaw', 'The Wharf', 'Union Market', 'West End'
+  ];
+  for (const dc of dcNeighborhoods) {
+    if (n.includes(dc)) return n;
+  }
+  // Virginia
+  if (['Alexandria', 'Annandale', 'Arlington', 'Fairfax', 'Falls Church',
+       'Great Falls', 'Herndon', 'McLean', 'Sterling', 'Tysons', 'Middleburg'].some(v => n.includes(v))) {
+    return 'Virginia';
+  }
+  // Maryland
+  if (['Bethesda', 'Silver Spring', 'College Park', 'Takoma Park', 'Riverdale',
+       'Darnestown', 'Germantown', 'North Bethesda', 'Annapolis', 'Frederick', 'Potomac'].some(m => n.includes(m))) {
+    return 'Maryland';
+  }
+  if (n.includes('Baltimore')) return 'Maryland';
+  if (n.includes('Washington VA')) return 'Virginia';
+  return n;
+}
+
+function buildCuisineFilter(data) {
+  const cuisines = new Set();
+  data.forEach(r => {
+    // Extract primary cuisine keywords
+    const c = r.Cuisine;
+    if (!c) return;
+    // Split compound cuisines
+    const parts = c.split(/[\/,&]/).map(s => s.trim().replace(/\(.*?\)/g, '').trim()).filter(Boolean);
+    parts.forEach(p => { if (p.length > 1) cuisines.add(p); });
+  });
+  const select = document.getElementById('filter-cuisine');
+  [...cuisines].sort().forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    select.appendChild(opt);
+  });
+}
+
+function isDCAddress(addr) {
+  if (!addr) return true;
+  return addr.includes('Washington, DC') && !addr.includes(', MD ') && !addr.includes(', VA ');
+}
+
+function buildNeighborhoodFilter(data) {
+  const regions = new Set();
+  data.forEach(r => {
+    r._isDC = isDCAddress(r.Address);
+    r._region = getRegion(r.Neighborhood);
+    // Always trust the address over the neighborhood for DC vs suburb
+    if (r._isDC && (r._region === 'Virginia' || r._region === 'Maryland')) {
+      r._region = r.Neighborhood || 'DC';
+    } else if (!r._isDC && r._region !== 'Virginia' && r._region !== 'Maryland') {
+      r._region = r.Address.match(/, VA \d/) ? 'Virginia' : 'Maryland';
+    }
+    regions.add(r._region);
+  });
+  const select = document.getElementById('filter-neighborhood');
+  // Sort DC neighborhoods first, then VA/MD
+  const sorted = [...regions].sort((a, b) => {
+    if (a === 'Virginia' && b !== 'Virginia') return 1;
+    if (a === 'Maryland' && b !== 'Maryland') return 1;
+    if (b === 'Virginia' && a !== 'Virginia') return -1;
+    if (b === 'Maryland' && a !== 'Maryland') return -1;
+    return a.localeCompare(b);
+  });
+  sorted.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n;
+    opt.textContent = n;
+    select.appendChild(opt);
+  });
+}
+
+function init(data) {
+  restaurants = data.filter(r => r.Restaurant);
+
+  buildCuisineFilter(restaurants);
+  buildNeighborhoodFilter(restaurants);
+
+  restaurants.forEach(r => {
+    if (!r.Lat || !r.Lng) return;
+    const marker = L.circleMarker([parseFloat(r.Lat), parseFloat(r.Lng)], {
+      radius: getRadius(r),
+      fillColor: getColor(r.Price),
+      color: '#fff',
+      weight: 1.5,
+      fillOpacity: 0.7,
+    }).addTo(map);
+
+    marker.bindPopup(makePopup(r), { maxWidth: 280 });
+    marker.bindTooltip(r.Restaurant, { direction: 'top', offset: [0, -8] });
+    markers[r.Restaurant] = marker;
+  });
+
+  applyFilters();
+}
+
+// Filters
+document.getElementById('search').addEventListener('input', e => {
+  activeFilters.search = e.target.value;
+  applyFilters();
+});
+document.querySelectorAll('#price-filters .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const p = chip.dataset.price;
+    chip.classList.toggle('active');
+    if (activeFilters.prices.has(p)) activeFilters.prices.delete(p);
+    else activeFilters.prices.add(p);
+    applyFilters();
+  });
+});
+document.getElementById('filter-location').addEventListener('change', e => {
+  activeFilters.location = e.target.value;
+  applyFilters();
+});
+document.getElementById('filter-cuisine').addEventListener('change', e => {
+  activeFilters.cuisine = e.target.value;
+  applyFilters();
+});
+document.getElementById('filter-neighborhood').addEventListener('change', e => {
+  activeFilters.neighborhood = e.target.value;
+  applyFilters();
+});
+document.getElementById('filter-sort').addEventListener('change', e => {
+  activeFilters.sort = e.target.value;
+  applyFilters();
+});
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const src = chip.dataset.source;
+    chip.classList.toggle('active');
+    if (activeFilters.sources.has(src)) activeFilters.sources.delete(src);
+    else activeFilters.sources.add(src);
+    applyFilters();
+  });
+});
+
+// Mobile bottom sheet drag
+(function() {
+  const handle = document.getElementById('sheet-handle');
+  const sidebar = document.getElementById('sidebar');
+  if (!handle) return;
+
+  handle.addEventListener('click', () => {
+    if (sidebar.classList.contains('collapsed')) {
+      sidebar.classList.remove('collapsed');
+    } else if (sidebar.classList.contains('expanded')) {
+      sidebar.classList.remove('expanded');
+    } else {
+      sidebar.classList.toggle('expanded');
+    }
+  });
+
+  let startY = 0, startH = 0;
+  handle.addEventListener('touchstart', e => {
+    startY = e.touches[0].clientY;
+    startH = sidebar.offsetHeight;
+    sidebar.style.transition = 'none';
+  });
+  handle.addEventListener('touchmove', e => {
+    const dy = startY - e.touches[0].clientY;
+    const newH = Math.max(60, Math.min(window.innerHeight * 0.9, startH + dy));
+    sidebar.style.height = newH + 'px';
+    sidebar.classList.remove('collapsed', 'expanded');
+    e.preventDefault();
+  });
+  handle.addEventListener('touchend', () => {
+    sidebar.style.transition = '';
+    const h = sidebar.offsetHeight;
+    const vh = window.innerHeight;
+    sidebar.style.height = '';
+    if (h < vh * 0.2) {
+      sidebar.classList.add('collapsed');
+      sidebar.classList.remove('expanded');
+    } else if (h > vh * 0.6) {
+      sidebar.classList.add('expanded');
+      sidebar.classList.remove('collapsed');
+    } else {
+      sidebar.classList.remove('collapsed', 'expanded');
+    }
+  });
+})();
+
+// Load CSV
+fetch('dc_restaurants_master.csv')
+  .then(res => res.text())
+  .then(text => {
+    const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+    init(result.data);
+  });
+</script>
+</body>
+</html>
