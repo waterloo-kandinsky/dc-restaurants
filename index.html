@@ -544,7 +544,7 @@ document.getElementById('filter-sort').addEventListener('change', e => {
   activeFilters.sort = e.target.value;
   applyFilters();
 });
-document.querySelectorAll('.chip').forEach(chip => {
+document.querySelectorAll('#source-filters .chip').forEach(chip => {
   chip.addEventListener('click', () => {
     const src = chip.dataset.source;
     chip.classList.toggle('active');
